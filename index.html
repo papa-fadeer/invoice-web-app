@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Document Generator (Local Storage)</title>
+    <title>Document Generator (PromptPay QR)</title>
     <!-- ใช้ Tailwind CSS -->
     <script src="https://cdn.tailwindcss.com"></script>
     
@@ -42,6 +42,10 @@
                 
                 notes: '1. กรุณาชำระเงินมัดจำ 50% ก่อนเริ่มดำเนินการ\n2. ชำระเงินส่วนที่เหลือเมื่อส่งมอบงาน\n3. โอนเงินเข้าบัญชี: ธ.กสิกรไทย 177-1-80680-1 ชื่อบัญชี นายวรรณรัตน์ สายทอง',
 
+                // --- ตั้งค่า PromptPay QR Code ---
+                showPromptpay: true,
+                promptpayId: '0844464032',
+
                 // --- ตัวแปรสำหรับระบบคลาวด์ ---
                 savedHistory: [],
                 showHistoryModal: false,
@@ -77,6 +81,15 @@
                     const yyyy = d.getFullYear();
                     const mm = String(d.getMonth() + 1).padStart(2, '0');
                     this.docNo = prefix + yyyy + mm + '001';
+                },
+
+                // สร้าง URL สำหรับ PromptPay API
+                getPromptpayUrl() {
+                    if (!this.promptpayId) return '';
+                    // ตัดขีดหรือช่องว่างออกให้เหลือแต่ตัวเลข
+                    const cleanId = this.promptpayId.replace(/\D/g, '');
+                    const amount = this.getGrandTotal();
+                    return `https://promptpay.io/${cleanId}/${amount}.png`;
                 },
 
                 // อัปโหลดรูปต่างๆ
@@ -168,7 +181,6 @@
                     return result;
                 },
                 getEmptyRows() {
-                    // ปรับลดจำนวนแถวว่างลง เพื่อไม่ให้ดันข้อมูลด้านล่างตกขอบกระดาษ
                     const minRows = 4;
                     const currentRows = this.items.length;
                     const emptyCount = minRows - currentRows;
@@ -185,7 +197,6 @@
 
                 saveDocument() {
                     this.isSaving = true;
-                    // คัดลอกข้อมูลเพื่อเตรียมบันทึก (ไม่บันทึกรูปภาพเพื่อประหยัดพื้นที่เบราว์เซอร์)
                     const dataToSave = {
                         docType: this.docType,
                         docNo: this.docNo,
@@ -197,11 +208,12 @@
                         customerName: this.customerName,
                         customerAddress: this.customerAddress,
                         customerTaxId: this.customerTaxId,
-                        items: JSON.parse(JSON.stringify(this.items)).map(item => ({...item, imgUrl: ''})), // ลบรูปภาพย่อย
+                        items: JSON.parse(JSON.stringify(this.items)).map(item => ({...item, imgUrl: ''})), 
                         discount: this.discount,
                         vatRate: this.vatRate,
-                        notes: this.notes
-                        // ไม่บันทึก logoUrl และ productImageUrl
+                        notes: this.notes,
+                        showPromptpay: this.showPromptpay,
+                        promptpayId: this.promptpayId
                     };
                     
                     if(window.saveToCloud) {
@@ -232,7 +244,9 @@
                     this.vatRate = docData.vatRate || 0;
                     this.notes = docData.notes || '';
                     
-                    // ปล่อยรูปภาพไว้เป็นค่าว่าง เนื่องจากไม่ได้บันทึกไว้
+                    this.showPromptpay = docData.showPromptpay !== undefined ? docData.showPromptpay : true;
+                    this.promptpayId = docData.promptpayId || '';
+                    
                     this.logoUrl = '';
                     this.productImageUrl = '';
                     
@@ -259,11 +273,10 @@
     
     <script src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
 
-    <!-- Script สำหรับจัดการข้อมูล Local Storage (แทน Firebase เพื่อให้รันบน GitHub Pages ได้ 100%) -->
+    <!-- Script สำหรับจัดการข้อมูล Local Storage -->
     <script>
         const STORAGE_KEY = 'invoice_app_history';
 
-        // ฟังก์ชันบันทึกข้อมูลลงในเบราว์เซอร์
         window.saveToCloud = async (data) => {
             try {
                 let history = JSON.parse(localStorage.getItem(STORAGE_KEY)) || [];
@@ -275,7 +288,6 @@
                 history.push(newDoc);
                 localStorage.setItem(STORAGE_KEY, JSON.stringify(history));
                 
-                // แจ้งเตือนให้ตารางประวัติอัปเดต
                 window.dispatchEvent(new CustomEvent('history-updated'));
                 return true;
             } catch (e) {
@@ -285,23 +297,16 @@
             }
         };
 
-        // ฟังก์ชันดึงข้อมูลประวัติมาแสดง
         window.listenCloudHistory = (callback) => {
             const loadData = () => {
                 let history = JSON.parse(localStorage.getItem(STORAGE_KEY)) || [];
-                // เรียงจากข้อมูลใหม่ล่าสุดไปเก่า
                 history.sort((a, b) => new Date(b.savedAt) - new Date(a.savedAt));
                 callback(history);
             };
-            
-            // โหลดครั้งแรกตอนเปิดเว็บ
             loadData();
-            
-            // โหลดซ้ำอัตโนมัติเมื่อมีการบันทึกหรือลบ
             window.addEventListener('history-updated', loadData);
         };
 
-        // ฟังก์ชันลบข้อมูลประวัติ
         window.deleteFromCloud = async (id) => {
             try {
                 let history = JSON.parse(localStorage.getItem(STORAGE_KEY)) || [];
@@ -322,14 +327,12 @@
     <style>
         body { font-family: 'Sarabun', sans-serif; }
         
-        /* CSS Counter สำหรับรันเลขลำดับ */
         .item-table { counter-reset: item-count; }
         .item-number::before {
             counter-increment: item-count;
             content: counter(item-count);
         }
         
-        /* --- ตั้งค่ากระดาษ A4 สำหรับพิมพ์ (Print) --- */
         @page { 
             size: A4; 
             margin: 0mm; 
@@ -354,23 +357,19 @@
             }
             #document-page {
                 width: 210mm !important; 
-                /* เอา min-height ออก ปล่อยให้ความสูงเป็นไปตามข้อมูล เพื่อไม่ให้บังคับทะลุหน้า */
                 height: auto !important; 
-                /* ลด padding บน-ล่าง ลงให้มีพื้นที่ปลอดภัย (Safe Area) ไม่ตกขอบ */
                 padding: 10mm 15mm 10mm 15mm !important; 
                 margin: 0 auto !important; 
                 box-shadow: none !important;
                 box-sizing: border-box;
                 page-break-after: auto;
             }
-            /* บังคับไม่ให้ลายเซ็นถูกหั่นครึ่งหน้าตอนขึ้นหน้า 2 (ถ้าข้อมูลยาว) */
             .signature-section {
                 page-break-inside: avoid;
                 break-inside: avoid;
             }
         }
         
-        /* --- กระดาษพรีวิวบนจอ --- */
         #document-page {
             width: 210mm; 
             min-height: 297mm; 
@@ -510,6 +509,25 @@
             <label class="block text-gray-700 font-semibold mb-1">หมายเหตุ / เงื่อนไข</label>
             <textarea x-model="notes" class="w-full border border-gray-300 rounded p-2 text-sm" rows="3"></textarea>
         </div>
+
+        <hr class="my-6 border-gray-200">
+        
+        <!-- ส่วนตั้งค่าคิวอาร์โค้ด (PromptPay) -->
+        <h3 class="font-bold text-gray-800 mb-3 flex items-center gap-2">
+            <svg class="w-5 h-5 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v1m6 11h2m-6 0h-2v4m0-11v3m0 0h.01M12 12h4.01M16 20h4M4 12h4m12 0h.01M5 8h2a1 1 0 001-1V5a1 1 0 00-1-1H5a1 1 0 00-1 1v2a1 1 0 001 1zm14 0h2a1 1 0 001-1V5a1 1 0 00-1-1h-2a1 1 0 00-1 1v2a1 1 0 001 1zM5 20h2a1 1 0 001-1v-2a1 1 0 00-1-1H5a1 1 0 00-1 1v2a1 1 0 001 1z"></path></svg>
+            คิวอาร์โค้ดรับเงิน (PromptPay)
+        </h3>
+        <div class="mb-10 space-y-3">
+            <label class="flex items-center gap-2 text-gray-700 cursor-pointer">
+                <input type="checkbox" x-model="showPromptpay" class="rounded text-blue-600 focus:ring-blue-500 w-4 h-4">
+                <span class="font-semibold text-sm">แสดง QR Code พร้อมเพย์บนเอกสาร</span>
+            </label>
+            <div x-show="showPromptpay" class="pl-6 transition-all" x-transition>
+                <label class="block text-gray-600 text-xs mb-1">เบอร์โทรศัพท์ หรือ เลขประจำตัวประชาชน</label>
+                <input type="text" x-model="promptpayId" placeholder="เช่น 0812345678" class="w-full border border-gray-300 rounded p-2 text-sm focus:border-blue-500 focus:outline-none">
+                <p class="text-[10px] text-gray-400 mt-1">* ระบบจะสร้าง QR Code พร้อมยอดเงินรวมให้อัตโนมัติ</p>
+            </div>
+        </div>
     </div>
 
     <!-- แถบด้านขวา: Live Preview -->
@@ -517,19 +535,16 @@
         
         <!-- กลุ่มปุ่ม Action (มุมขวาบน) -->
         <div id="action-buttons" class="fixed top-6 right-6 flex gap-3 z-50 print-hide">
-            <!-- ปุ่มประวัติ -->
             <button @click="showHistoryModal = true" class="bg-indigo-600 text-white px-4 py-2 rounded shadow hover:bg-indigo-700 font-bold flex items-center gap-2 transition">
                 <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
                 ประวัติ (<span x-text="savedHistory.length"></span>)
             </button>
             
-            <!-- ปุ่มบันทึก -->
             <button @click="saveDocument()" class="bg-emerald-600 text-white px-4 py-2 rounded shadow hover:bg-emerald-700 font-bold flex items-center gap-2 transition" :disabled="isSaving" :class="isSaving ? 'opacity-50 cursor-not-allowed' : ''">
                 <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7H5a2 2 0 00-2 2v9a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-3m-1 4l-3 3m0 0l-3-3m3 3V4"></path></svg>
                 <span x-text="isSaving ? 'กำลังบันทึก...' : 'บันทึกเอกสาร'"></span>
             </button>
 
-            <!-- ปุ่มพิมพ์ -->
             <button onclick="window.print()" class="bg-gray-800 text-white px-4 py-2 rounded shadow hover:bg-black font-bold flex items-center gap-2 transition">
                 <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 17h2a2 2 0 002-2v-4a2 2 0 00-2-2H5a2 2 0 00-2 2v4a2 2 0 002 2h2m2 4h6a2 2 0 002-2v-4a2 2 0 00-2-2H9a2 2 0 00-2 2v4a2 2 0 002 2zm8-12V5a2 2 0 00-2-2H9a2 2 0 00-2 2v4h10z"></path></svg>
                 พิมพ์ / PDF
@@ -621,10 +636,7 @@
                 <tbody class="bg-white">
                     <template x-for="(item, index) in items" :key="index">
                         <tr class="border-b border-gray-100 hover:bg-blue-50/50 transition-colors">
-                            <!-- ช่องลำดับ -->
                             <td class="py-1.5 px-2 text-center align-top border-b border-gray-200"><span :class="!item.isSub ? 'item-number font-bold text-blue-700' : ''"></span></td>
-                            
-                            <!-- ช่องรายละเอียด + รูปภาพย่อย -->
                             <td class="py-1.5 px-2 text-left align-top border-b border-gray-200">
                                 <div class="whitespace-pre-line pr-2 leading-snug" :class="item.isSub ? 'pl-6 text-gray-500 text-[13px]' : 'font-bold text-gray-800'" x-text="item.desc"></div>
                                 <template x-if="item.imgUrl && !item.isSub">
@@ -633,14 +645,12 @@
                                     </div>
                                 </template>
                             </td>
-                            
                             <td class="py-1.5 px-2 text-center align-top text-gray-700 border-b border-gray-200" x-text="item.isSub ? '' : item.qty"></td>
                             <td class="py-1.5 px-2 text-center align-top text-gray-700 border-b border-gray-200" x-text="item.isSub ? '' : item.unit"></td>
                             <td class="py-1.5 px-2 text-right align-top text-gray-700 border-b border-gray-200" x-text="item.isSub ? '' : formatNumber(item.price)"></td>
                             <td class="py-1.5 px-2 text-right align-top font-bold text-blue-700 border-b border-gray-200" x-text="item.isSub ? '' : formatNumber(item.qty * item.price)"></td>
                         </tr>
                     </template>
-                    <!-- แถวว่าง -->
                     <template x-for="i in getEmptyRows()">
                         <tr>
                             <td class="py-1.5 px-2 text-center text-transparent border-b border-gray-100">.</td>
@@ -649,15 +659,24 @@
                     </template>
                 </tbody>
                 
-                <!-- ส่วนสรุปยอดท้ายตาราง -->
+                <!-- ส่วนสรุปยอดและคิวอาร์โค้ด -->
                 <tbody class="bg-white">
                     <tr>
-                        <td colspan="4" rowspan="5" class="align-top p-3 bg-gray-50 border-r border-gray-200">
-                            <div class="font-bold mb-1 text-blue-800 flex items-center gap-1">
-                                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
-                                หมายเหตุ / เงื่อนไขการชำระเงิน:
+                        <td colspan="4" rowspan="5" class="align-top p-3 bg-gray-50 border-r border-gray-200 relative">
+                            <div class="flex justify-between h-full">
+                                <div class="w-full pr-2">
+                                    <div class="font-bold mb-1 text-blue-800 flex items-center gap-1">
+                                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
+                                        หมายเหตุ / เงื่อนไขการชำระเงิน:
+                                    </div>
+                                    <div class="whitespace-pre-line leading-snug text-xs text-gray-600" x-text="notes"></div>
+                                </div>
+                                <!-- แสดง QR Code -->
+                                <div class="w-1/3 flex flex-col items-center justify-center border-l border-gray-200 pl-3 shrink-0" x-show="showPromptpay && promptpayId">
+                                    <span class="text-[10px] font-bold text-blue-800 mb-1 bg-blue-100 px-2 py-0.5 rounded-full">QR PromptPay</span>
+                                    <img :src="getPromptpayUrl()" alt="PromptPay QR" class="w-20 h-20 object-contain mix-blend-multiply border border-gray-200 rounded p-1 bg-white">
+                                </div>
                             </div>
-                            <div class="whitespace-pre-line leading-snug text-xs text-gray-600" x-text="notes"></div>
                         </td>
                         <td class="py-1.5 px-2 text-right font-bold border-b border-gray-200 text-gray-700">รวมเป็นเงิน</td>
                         <td class="py-1.5 px-2 text-right border-b border-gray-200 font-semibold text-gray-800" x-text="formatNumber(getSubtotal())"></td>
@@ -678,7 +697,6 @@
                         <td class="py-2 px-2 text-right font-bold text-blue-900 border-b-2 border-blue-600">จำนวนเงินทั้งสิ้น</td>
                         <td class="py-2 px-2 text-right font-bold text-blue-900 border-b-2 border-blue-600 text-[15px]" x-text="formatNumber(getGrandTotal())"></td>
                     </tr>
-                    <!-- ตัวอักษรจำนวนเงิน -->
                     <tr>
                         <td colspan="6" class="py-2 px-3 text-center font-bold bg-blue-600 text-white text-sm">
                             ( <span x-text="getThaiText(getGrandTotal())"></span> )
@@ -689,7 +707,6 @@
 
             <!-- ลายเซ็นต์ -->
             <div class="signature-section flex justify-between mt-4 px-6 text-sm text-center">
-                <!-- ผู้เสนอราคา / ผู้ออกเอกสาร -->
                 <div class="w-64">
                     <p class="mb-5 font-bold text-blue-900" x-text="docType.includes('RECEIPT') ? 'ผู้รับเงิน (Authorized Signature)' : 'ผู้เสนอราคา (Authorized Signature)'"></p>
                     <div class="border-b-2 border-blue-300 w-full mb-1.5"></div>
@@ -697,7 +714,6 @@
                     <p class="text-xs mt-1 text-gray-500">วันที่: ....... / ....... / .............</p>
                 </div>
                 
-                <!-- ลูกค้า / ผู้อนุมัติ -->
                 <div class="w-64" x-show="!docType.includes('RECEIPT')">
                     <p class="mb-5 font-bold text-blue-900" x-text="docType.includes('QUOTATION') ? 'ผู้อนุมัติสั่งซื้อ (Authorized Signature)' : 'ผู้รับสินค้า / บริการ (Received By)'"></p>
                     <div class="border-b-2 border-blue-300 w-full mb-1.5"></div>
@@ -766,7 +782,6 @@
                     </template>
                 </div>
             </div>
-            <!-- Note -->
             <div class="bg-gray-200 p-3 text-center text-xs text-gray-500">
                 * หมายเหตุ: ประวัติจะถูกบันทึกไว้ในเบราว์เซอร์ของเครื่องนี้ และจะไม่บันทึกรูปภาพ (โลโก้/สินค้า) เพื่อประหยัดพื้นที่
             </div>
