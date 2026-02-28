@@ -1,0 +1,536 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Document Generator (Fixed Print Margin)</title>
+    <!-- ใช้ Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    
+    <!-- ข้อมูล Alpine.js -->
+    <script>
+        document.addEventListener('alpine:init', () => {
+            Alpine.data('documentApp', () => ({
+                docType: 'ใบแจ้งหนี้ (INVOICE)',
+                docNo: '', 
+                docDate: new Date().toISOString().split('T')[0],
+                
+                logoUrl: '', 
+                productImageUrl: '', 
+                
+                myCompany: 'วรรณรัตน์ สายทอง',
+                myAddress: '674/5 ต.เขาพระ อ.พิปูน จ.นครศรีธรรมราช 80270',
+                myTaxId: '',
+                myContact: 'โทร: 0844464032',
+                
+                customerName: 'วิสาหกิจชุมชนรับซื้อยางแผ่นชุมชนห้วยเสือกวาง',
+                customerAddress: '261 หมู่ที่ 3 ตำบลสำนักแต้ว\nอำเภอสะเดา จังหวัดสงขลา รหัสไปรษณีย์ 90120',
+                customerTaxId: '',
+                
+                items: [
+                    { desc: 'เสายึดกล้อง สำหรับจับภาพป้ายทะเบียน', qty: 2, unit: 'ชิ้น', price: 1100, isSub: false, imgUrl: '' },
+                    { desc: '- เสายึดกล้องฐานแนวนอนพร้อมเจาะรู 4 ตำแหน่ง', qty: 0, unit: '', price: 0, isSub: true, imgUrl: '' },
+                    { desc: '- ความสูง 120 CM จากพื้น แผ่น แผลท 8x8 "', qty: 0, unit: '', price: 0, isSub: true, imgUrl: '' },
+                    { desc: 'เสายึดกล้อง สำหรับจับภาพสินค้า', qty: 2, unit: 'ชิ้น', price: 1100, isSub: false, imgUrl: '' },
+                    { desc: '- เสายึดกล้องฐานแนวตั้งพร้อมเจาะรู 4 ตำแหน่ง', qty: 0, unit: '', price: 0, isSub: true, imgUrl: '' },
+                    { desc: '- ความสูง 120 CM จากพื้น แผ่น แผลท 8x8 "', qty: 0, unit: '', price: 0, isSub: true, imgUrl: '' },
+                    { desc: 'พุกเหล็กยึดปูนขนาด 3/4', qty: 20, unit: 'ชิ้น', price: 25, isSub: false, imgUrl: '' }
+                ],
+                
+                discount: 0,
+                vatRate: 0,
+                
+                notes: '1. กรุณาชำระเงินมัดจำ 50% ก่อนเริ่มดำเนินการ\n2. ชำระเงินส่วนที่เหลือเมื่อส่งมอบงาน\n3. โอนเงินเข้าบัญชี: ธ.กสิกรไทย 177-1-80680-1 ชื่อบัญชี นายวรรณรัตน์ สายทอง',
+
+                init() {
+                    this.updateDocNo();
+                },
+
+                updateDocNo() {
+                    let prefix = 'QT-';
+                    if (this.docType.includes('INVOICE')) prefix = 'INV-';
+                    else if (this.docType.includes('RECEIPT')) prefix = 'RE-';
+                    
+                    const d = new Date();
+                    const yyyy = d.getFullYear();
+                    const mm = String(d.getMonth() + 1).padStart(2, '0');
+                    this.docNo = prefix + yyyy + mm + '001';
+                },
+
+                // อัปโหลดรูปต่างๆ
+                handleLogoUpload(event) {
+                    const file = event.target.files[0];
+                    if (file) {
+                        const reader = new FileReader();
+                        reader.onload = (e) => { this.logoUrl = e.target.result; };
+                        reader.readAsDataURL(file);
+                    }
+                },
+                removeLogo() { this.logoUrl = ''; document.getElementById('logoInput').value = ''; },
+                
+                handleProductImageUpload(event) {
+                    const file = event.target.files[0];
+                    if (file) {
+                        const reader = new FileReader();
+                        reader.onload = (e) => { this.productImageUrl = e.target.result; };
+                        reader.readAsDataURL(file);
+                    }
+                },
+                removeProductImage() { this.productImageUrl = ''; document.getElementById('productImageInput').value = ''; },
+
+                handleItemImageUpload(event, index) {
+                    const file = event.target.files[0];
+                    if (file) {
+                        const reader = new FileReader();
+                        reader.onload = (e) => { this.items[index].imgUrl = e.target.result; };
+                        reader.readAsDataURL(file);
+                    }
+                },
+                removeItemImage(index, event) {
+                    this.items[index].imgUrl = '';
+                    const container = event.target.closest('div.relative');
+                    if (container && container.parentElement) {
+                        const input = container.parentElement.querySelector('input[type="file"]');
+                        if (input) input.value = '';
+                    }
+                },
+
+                addItem(isSub = false) { 
+                    this.items.push({ desc: '', qty: isSub ? 0 : 1, unit: isSub ? '' : 'ชิ้น', price: isSub ? 0 : 0, isSub: isSub, imgUrl: '' }); 
+                },
+                removeItem(index) { this.items.splice(index, 1); },
+                getSubtotal() { return this.items.reduce((sum, item) => sum + (item.qty * item.price), 0); },
+                getVatAmount() {
+                    const base = this.getSubtotal() - this.discount;
+                    return base > 0 ? (base * this.vatRate) / 100 : 0;
+                },
+                getGrandTotal() {
+                    const base = this.getSubtotal() - this.discount;
+                    return base > 0 ? base + this.getVatAmount() : 0;
+                },
+                formatNumber(num) {
+                    return Number(num).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+                },
+                formatDate(dateStr) {
+                    if(!dateStr) return '-';
+                    const d = new Date(dateStr);
+                    const months = ['ม.ค.', 'ก.พ.', 'มี.ค.', 'เม.ย.', 'พ.ค.', 'มิ.ย.', 'ก.ค.', 'ส.ค.', 'ก.ย.', 'ต.ค.', 'พ.ย.', 'ธ.ค.'];
+                    return `${d.getDate()} ${months[d.getMonth()]} ${d.getFullYear() + 543}`;
+                },
+                getThaiText(number) {
+                    if (number === 0) return 'ศูนย์บาทถ้วน';
+                    let numStr = Number(number).toFixed(2);
+                    const txtNum = ['ศูนย์', 'หนึ่ง', 'สอง', 'สาม', 'สี่', 'ห้า', 'หก', 'เจ็ด', 'แปด', 'เก้า'];
+                    const txtUnit = ['', 'สิบ', 'ร้อย', 'พัน', 'หมื่น', 'แสน', 'ล้าน'];
+                    let [baht, satang] = numStr.split('.');
+                    
+                    const convert = (str) => {
+                        let res = '';
+                        let len = str.length;
+                        for (let i = 0; i < len; i++) {
+                            let digit = parseInt(str.charAt(i));
+                            if (digit !== 0) {
+                                if (i === len - 1 && digit === 1 && len > 1 && str.charAt(len-2) !== '0') res += 'เอ็ด';
+                                else if (i === len - 2 && digit === 2) res += 'ยี่';
+                                else if (i === len - 2 && digit === 1) res += '';
+                                else res += txtNum[digit];
+                                res += txtUnit[len - 1 - i];
+                            }
+                        }
+                        return res;
+                    };
+                    let result = '';
+                    if (parseInt(baht) > 0) result += convert(baht) + 'บาท';
+                    if (parseInt(satang) > 0) result += convert(satang) + 'สตางค์';
+                    else result += 'ถ้วน';
+                    return result;
+                },
+                getEmptyRows() {
+                    // ปรับลดจำนวนแถวว่างลง เพื่อไม่ให้ดันข้อมูลด้านล่างตกขอบกระดาษ
+                    const minRows = 4;
+                    const currentRows = this.items.length;
+                    const emptyCount = minRows - currentRows;
+                    return emptyCount > 0 ? new Array(emptyCount).fill(0) : [];
+                }
+            }));
+        });
+    </script>
+    
+    <script src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Sarabun:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    
+    <style>
+        body { font-family: 'Sarabun', sans-serif; }
+        
+        /* CSS Counter สำหรับรันเลขลำดับ */
+        .item-table { counter-reset: item-count; }
+        .item-number::before {
+            counter-increment: item-count;
+            content: counter(item-count);
+        }
+        
+        /* --- ตั้งค่ากระดาษ A4 สำหรับพิมพ์ (Print) --- */
+        @page { 
+            size: A4; 
+            margin: 0mm; 
+        }
+        
+        @media print {
+            body { 
+                background-color: white; 
+                -webkit-print-color-adjust: exact; 
+                print-color-adjust: exact;
+                margin: 0;
+                padding: 0;
+            }
+            #sidebar, #print-btn { display: none !important; }
+            #preview-container { 
+                width: 100%; 
+                margin: 0; 
+                padding: 0; 
+                background: none; 
+                box-shadow: none; 
+                overflow: visible;
+            }
+            #document-page {
+                width: 210mm !important; 
+                /* เอา min-height ออก ปล่อยให้ความสูงเป็นไปตามข้อมูล เพื่อไม่ให้บังคับทะลุหน้า */
+                height: auto !important; 
+                /* ลด padding บน-ล่าง ลงให้มีพื้นที่ปลอดภัย (Safe Area) ไม่ตกขอบ */
+                padding: 10mm 15mm 10mm 15mm !important; 
+                margin: 0 auto !important; 
+                box-shadow: none !important;
+                box-sizing: border-box;
+                page-break-after: auto;
+            }
+            /* บังคับไม่ให้ลายเซ็นถูกหั่นครึ่งหน้าตอนขึ้นหน้า 2 (ถ้าข้อมูลยาว) */
+            .signature-section {
+                page-break-inside: avoid;
+                break-inside: avoid;
+            }
+        }
+        
+        /* --- กระดาษพรีวิวบนจอ --- */
+        #document-page {
+            width: 210mm; 
+            min-height: 297mm; 
+            background: white; 
+            padding: 15mm 20mm; 
+            margin: 0 auto;
+            box-shadow: 0 10px 25px rgba(0,0,0,0.15); 
+            color: #000;
+            box-sizing: border-box;
+        }
+
+        #preview-container {
+            overflow-x: hidden;
+        }
+    </style>
+</head>
+<body class="bg-gray-100 h-screen flex overflow-hidden text-sm" x-data="documentApp">
+
+    <!-- แถบด้านซ้าย: ตั้งค่า -->
+    <div id="sidebar" class="w-1/3 bg-white h-full border-r overflow-y-auto p-6 shadow-xl z-10">
+        <h2 class="text-xl font-bold text-gray-800 mb-6 flex items-center gap-2">
+            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path></svg>
+            ตั้งค่าเอกสาร
+        </h2>
+
+        <div class="mb-4">
+            <label class="block text-gray-700 font-semibold mb-1">ประเภทเอกสาร</label>
+            <select x-model="docType" @change="updateDocNo()" class="w-full border border-gray-300 rounded p-2 focus:border-gray-500 focus:outline-none">
+                <option value="ใบเสนอราคา (QUOTATION)">ใบเสนอราคา (Quotation)</option>
+                <option value="ใบแจ้งหนี้ (INVOICE)">ใบแจ้งหนี้ (Invoice)</option>
+                <option value="ใบเสร็จรับเงิน (RECEIPT)">ใบเสร็จรับเงิน (Receipt)</option>
+            </select>
+        </div>
+
+        <div class="grid grid-cols-2 gap-4 mb-6">
+            <div>
+                <label class="block text-gray-700 font-semibold mb-1">เลขที่เอกสาร</label>
+                <input type="text" x-model="docNo" class="w-full border border-gray-300 rounded p-2 focus:border-gray-500 focus:outline-none">
+            </div>
+            <div>
+                <label class="block text-gray-700 font-semibold mb-1">วันที่</label>
+                <input type="date" x-model="docDate" class="w-full border border-gray-300 rounded p-2 focus:border-gray-500 focus:outline-none">
+            </div>
+        </div>
+
+        <hr class="my-6">
+
+        <h3 class="font-bold text-gray-800 mb-3">ข้อมูลผู้ออกเอกสาร</h3>
+        
+        <div class="mb-3">
+            <label class="block text-gray-700 text-xs font-semibold mb-1">โลโก้บริษัท (ถ้ามี)</label>
+            <div class="flex items-center gap-2">
+                <input type="file" id="logoInput" accept="image/*" @change="handleLogoUpload" class="w-full border border-gray-300 rounded p-1 text-sm bg-gray-50 cursor-pointer">
+                <button x-show="logoUrl" @click="removeLogo()" class="bg-red-100 text-red-600 px-2 py-1.5 rounded text-xs hover:bg-red-200">ลบ</button>
+            </div>
+        </div>
+
+        <div class="space-y-3 mb-6">
+            <input type="text" x-model="myCompany" placeholder="ชื่อบริษัท / ร้านค้า / ชื่อ-นามสกุล" class="w-full border border-gray-300 rounded p-2 font-semibold">
+            <textarea x-model="myAddress" placeholder="ที่อยู่" class="w-full border border-gray-300 rounded p-2 text-sm" rows="2"></textarea>
+            <input type="text" x-model="myTaxId" placeholder="เลขประจำตัวผู้เสียภาษี" class="w-full border border-gray-300 rounded p-2">
+            <input type="text" x-model="myContact" placeholder="เบอร์โทร / อีเมล" class="w-full border border-gray-300 rounded p-2">
+        </div>
+
+        <hr class="my-6">
+
+        <h3 class="font-bold text-gray-800 mb-3">รูปสินค้าหลัก / งานอ้างอิง (แสดงหัวเอกสาร)</h3>
+        <div class="mb-6">
+            <div class="flex items-center gap-2">
+                <input type="file" id="productImageInput" accept="image/*" @change="handleProductImageUpload" class="w-full border border-gray-300 rounded p-1 text-sm bg-gray-50 cursor-pointer">
+                <button x-show="productImageUrl" @click="removeProductImage()" class="bg-red-100 text-red-600 px-2 py-1.5 rounded text-xs hover:bg-red-200">ลบ</button>
+            </div>
+        </div>
+
+        <hr class="my-6">
+
+        <h3 class="font-bold text-gray-800 mb-3">ข้อมูลลูกค้า</h3>
+        <div class="space-y-3 mb-6">
+            <input type="text" x-model="customerName" placeholder="ชื่อบริษัทลูกค้า / ชื่อลูกค้า" class="w-full border border-gray-300 rounded p-2">
+            <textarea x-model="customerAddress" placeholder="ที่อยู่ลูกค้า" class="w-full border border-gray-300 rounded p-2 text-sm" rows="2"></textarea>
+            <input type="text" x-model="customerTaxId" placeholder="เลขประจำตัวผู้เสียภาษีลูกค้า (ถ้ามี)" class="w-full border border-gray-300 rounded p-2">
+        </div>
+
+        <hr class="my-6">
+
+        <h3 class="font-bold text-gray-800 mb-3 flex justify-between items-center">
+            รายการสินค้า/บริการ
+            <div class="flex gap-2">
+                <button @click="addItem(true)" class="bg-gray-100 text-gray-600 px-3 py-1 rounded text-xs border border-gray-300 hover:bg-gray-200">+ เพิ่มข้อย่อย</button>
+                <button @click="addItem(false)" class="bg-gray-800 text-white px-3 py-1 rounded text-xs hover:bg-black">+ เพิ่มรายการ</button>
+            </div>
+        </h3>
+        
+        <template x-for="(item, index) in items" :key="index">
+            <div class="bg-gray-50 p-3 rounded border border-gray-300 mb-3 relative group" :class="item.isSub ? 'ml-8 border-dashed' : ''">
+                <button @click="removeItem(index)" class="absolute top-2 right-2 text-red-400 hover:text-red-600 hidden group-hover:block">✕</button>
+                
+                <textarea x-model="item.desc" :placeholder="item.isSub ? 'รายละเอียดข้อย่อย...' : 'ชื่อรายการ / รายละเอียด'" class="w-full border border-gray-300 rounded p-2 mb-2 text-sm" rows="1"></textarea>
+                
+                <div x-show="!item.isSub" class="mb-3">
+                    <label class="inline-flex items-center gap-1 text-xs text-gray-600 hover:text-blue-600 cursor-pointer border border-gray-300 rounded px-2 py-1 bg-white hover:bg-gray-50 transition shadow-sm">
+                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"></path></svg>
+                        <span x-text="item.imgUrl ? 'เปลี่ยนรูปสินค้า' : 'แนบรูปสินค้า'"></span>
+                        <input type="file" accept="image/*" class="hidden" @change="handleItemImageUpload($event, index)">
+                    </label>
+                    <div x-show="item.imgUrl" class="mt-2 relative inline-block">
+                        <img :src="item.imgUrl" class="h-16 object-contain rounded border border-gray-200 bg-white p-1">
+                        <button @click="removeItemImage(index, $event)" class="absolute -top-2 -right-2 bg-red-500 text-white rounded-full w-5 h-5 flex items-center justify-center text-xs hover:bg-red-600 shadow">✕</button>
+                    </div>
+                </div>
+
+                <div class="grid grid-cols-3 gap-2" x-show="!item.isSub">
+                    <div><input type="number" x-model.number="item.qty" placeholder="จำนวน" class="w-full border border-gray-300 rounded p-2 text-center"></div>
+                    <div><input type="text" x-model="item.unit" placeholder="หน่วย" class="w-full border border-gray-300 rounded p-2 text-center"></div>
+                    <div><input type="number" x-model.number="item.price" placeholder="ราคา/หน่วย" class="w-full border border-gray-300 rounded p-2 text-right"></div>
+                </div>
+            </div>
+        </template>
+
+        <hr class="my-6">
+
+        <div class="grid grid-cols-2 gap-4 mb-6">
+            <div>
+                <label class="block text-gray-700 font-semibold mb-1">ส่วนลด (บาท)</label>
+                <input type="number" x-model.number="discount" class="w-full border border-gray-300 rounded p-2 text-right">
+            </div>
+            <div>
+                <label class="block text-gray-700 font-semibold mb-1">ภาษีมูลค่าเพิ่ม VAT</label>
+                <select x-model.number="vatRate" class="w-full border border-gray-300 rounded p-2">
+                    <option value="0">ไม่มี (0%)</option>
+                    <option value="7">รวม VAT 7%</option>
+                </select>
+            </div>
+        </div>
+
+        <div class="mb-8">
+            <label class="block text-gray-700 font-semibold mb-1">หมายเหตุ / เงื่อนไข</label>
+            <textarea x-model="notes" class="w-full border border-gray-300 rounded p-2 text-sm" rows="3"></textarea>
+        </div>
+    </div>
+
+    <!-- แถบด้านขวา: Live Preview -->
+    <div id="preview-container" class="w-2/3 h-full overflow-y-auto bg-gray-300 p-8 relative">
+        
+        <button id="print-btn" onclick="window.print()" class="fixed top-6 right-6 bg-gray-800 text-white px-6 py-3 rounded shadow-lg hover:bg-black font-bold flex items-center gap-2 z-50">
+            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 17h2a2 2 0 002-2v-4a2 2 0 00-2-2H5a2 2 0 00-2 2v4a2 2 0 002 2h2m2 4h6a2 2 0 002-2v-4a2 2 0 00-2-2H9a2 2 0 00-2 2v4a2 2 0 002 2zm8-12V5a2 2 0 00-2-2H9a2 2 0 00-2 2v4h10z"></path></svg>
+            พิมพ์เอกสาร / PDF
+        </button>
+
+        <div id="document-page">
+            
+            <!-- หัวเอกสาร -->
+            <div class="flex justify-between items-start mb-4">
+                <div class="w-2/3 pr-4">
+                    <template x-if="logoUrl">
+                        <img :src="logoUrl" class="max-w-[150px] max-h-[80px] object-contain mb-2">
+                    </template>
+                    
+                    <h1 class="text-2xl font-bold text-blue-800 mb-1" x-text="myCompany || 'ชื่อบริษัทของคุณ'"></h1>
+                    <p class="text-sm text-gray-600 whitespace-pre-line leading-tight" x-text="myAddress"></p>
+                    <div class="text-sm text-gray-600 mt-1 flex gap-4">
+                        <span x-show="myTaxId">เลขประจำตัวผู้เสียภาษี: <span x-text="myTaxId"></span></span>
+                        <span x-show="myContact" x-text="myContact"></span>
+                    </div>
+                </div>
+                
+                <div class="w-1/3 text-right flex flex-col items-end">
+                    <h2 class="text-2xl font-extrabold text-blue-600 mb-2" x-text="docType"></h2>
+                    <div class="bg-blue-50 px-3 py-1.5 rounded-lg border border-blue-100 inline-block w-full max-w-[220px]">
+                        <table class="w-full text-sm text-gray-800 ml-auto">
+                            <tr>
+                                <td class="font-bold py-0.5 text-right pr-2 text-blue-800">เลขที่:</td>
+                                <td class="text-left font-semibold text-gray-900" x-text="docNo"></td>
+                            </tr>
+                            <tr>
+                                <td class="font-bold py-0.5 text-right pr-2 text-blue-800">วันที่:</td>
+                                <td class="text-left font-semibold text-gray-900" x-text="formatDate(docDate)"></td>
+                            </tr>
+                        </table>
+                    </div>
+                    
+                    <template x-if="productImageUrl">
+                        <img :src="productImageUrl" class="max-w-[180px] max-h-[100px] object-contain mt-2 border border-gray-200 p-1 bg-white shadow-sm rounded">
+                    </template>
+                </div>
+            </div>
+
+            <!-- กล่องข้อมูลลูกค้า -->
+            <div class="border-l-4 border-blue-500 bg-blue-50/70 p-3 mb-4 flex text-sm rounded-r-lg shadow-sm">
+                <div class="w-2/3 border-r border-blue-200 pr-3">
+                    <table class="w-full">
+                        <tr>
+                            <td class="font-bold align-top w-24 py-0.5 text-blue-900">ชื่อลูกค้า:</td>
+                            <td class="py-0.5 font-semibold text-gray-800 leading-tight" x-text="customerName || '-'"></td>
+                        </tr>
+                        <tr>
+                            <td class="font-bold align-top py-0.5 text-blue-900">ที่อยู่:</td>
+                            <td class="py-0.5 whitespace-pre-line leading-tight text-gray-700" x-text="customerAddress || '-'"></td>
+                        </tr>
+                        <tr>
+                            <td class="font-bold py-0.5 text-blue-900">เลขผู้เสียภาษี:</td>
+                            <td class="py-0.5 text-gray-700 leading-tight" x-text="customerTaxId || '-'"></td>
+                        </tr>
+                    </table>
+                </div>
+                <div class="w-1/3 pl-3">
+                    <table class="w-full">
+                        <tr>
+                            <td class="font-bold align-top py-0.5 w-16 text-blue-900">อ้างอิง:</td>
+                            <td class="py-0.5 text-gray-700 leading-tight">-</td>
+                        </tr>
+                        <tr>
+                            <td class="font-bold align-top py-0.5 text-blue-900">เงื่อนไข:</td>
+                            <td class="py-0.5 text-gray-800 font-semibold leading-tight" x-text="docType.includes('QUOTATION') ? 'ยืนยันราคา 30 วัน' : (docType.includes('INVOICE') ? 'เครดิต 30 วัน' : 'เงินสด / โอนเงิน')"></td>
+                        </tr>
+                    </table>
+                </div>
+            </div>
+
+            <!-- ตารางรายการสินค้า -->
+            <table class="w-full text-sm mb-3 border-collapse item-table table-fixed shadow-sm rounded-lg overflow-hidden" style="border-collapse: separate; border-spacing: 0;">
+                <thead class="bg-blue-600 text-white">
+                    <tr>
+                        <th class="py-2 px-2 text-center w-[8%] border-b-2 border-blue-700">ลำดับ</th>
+                        <th class="py-2 px-2 text-center w-[42%] border-b-2 border-blue-700">รายการ</th>
+                        <th class="py-2 px-2 text-center w-[10%] border-b-2 border-blue-700">จำนวน</th>
+                        <th class="py-2 px-2 text-center w-[10%] border-b-2 border-blue-700">หน่วย</th>
+                        <th class="py-2 px-2 text-center w-[15%] border-b-2 border-blue-700">ราคา/หน่วย</th>
+                        <th class="py-2 px-2 text-center w-[15%] border-b-2 border-blue-700">จำนวนเงิน</th>
+                    </tr>
+                </thead>
+                <tbody class="bg-white">
+                    <template x-for="(item, index) in items" :key="index">
+                        <tr class="border-b border-gray-100 hover:bg-blue-50/50 transition-colors">
+                            <!-- ช่องลำดับ -->
+                            <td class="py-1.5 px-2 text-center align-top border-b border-gray-200"><span :class="!item.isSub ? 'item-number font-bold text-blue-700' : ''"></span></td>
+                            
+                            <!-- ช่องรายละเอียด + รูปภาพย่อย -->
+                            <td class="py-1.5 px-2 text-left align-top border-b border-gray-200">
+                                <div class="whitespace-pre-line pr-2 leading-snug" :class="item.isSub ? 'pl-6 text-gray-500 text-[13px]' : 'font-bold text-gray-800'" x-text="item.desc"></div>
+                                <template x-if="item.imgUrl && !item.isSub">
+                                    <div class="mt-1 mb-1">
+                                        <img :src="item.imgUrl" class="max-w-[120px] max-h-[80px] object-contain border border-blue-100 p-1 bg-white rounded shadow-sm">
+                                    </div>
+                                </template>
+                            </td>
+                            
+                            <td class="py-1.5 px-2 text-center align-top text-gray-700 border-b border-gray-200" x-text="item.isSub ? '' : item.qty"></td>
+                            <td class="py-1.5 px-2 text-center align-top text-gray-700 border-b border-gray-200" x-text="item.isSub ? '' : item.unit"></td>
+                            <td class="py-1.5 px-2 text-right align-top text-gray-700 border-b border-gray-200" x-text="item.isSub ? '' : formatNumber(item.price)"></td>
+                            <td class="py-1.5 px-2 text-right align-top font-bold text-blue-700 border-b border-gray-200" x-text="item.isSub ? '' : formatNumber(item.qty * item.price)"></td>
+                        </tr>
+                    </template>
+                    <!-- แถวว่าง -->
+                    <template x-for="i in getEmptyRows()">
+                        <tr>
+                            <td class="py-1.5 px-2 text-center text-transparent border-b border-gray-100">.</td>
+                            <td class="border-b border-gray-100"></td><td class="border-b border-gray-100"></td><td class="border-b border-gray-100"></td><td class="border-b border-gray-100"></td><td class="border-b border-gray-100"></td>
+                        </tr>
+                    </template>
+                </tbody>
+                
+                <!-- ส่วนสรุปยอดท้ายตาราง -->
+                <tbody class="bg-white">
+                    <tr>
+                        <td colspan="4" rowspan="5" class="align-top p-3 bg-gray-50 border-r border-gray-200">
+                            <div class="font-bold mb-1 text-blue-800 flex items-center gap-1">
+                                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
+                                หมายเหตุ / เงื่อนไขการชำระเงิน:
+                            </div>
+                            <div class="whitespace-pre-line leading-snug text-xs text-gray-600" x-text="notes"></div>
+                        </td>
+                        <td class="py-1.5 px-2 text-right font-bold border-b border-gray-200 text-gray-700">รวมเป็นเงิน</td>
+                        <td class="py-1.5 px-2 text-right border-b border-gray-200 font-semibold text-gray-800" x-text="formatNumber(getSubtotal())"></td>
+                    </tr>
+                    <tr>
+                        <td class="py-1.5 px-2 text-right font-bold border-b border-gray-200 text-gray-700">หักส่วนลด</td>
+                        <td class="py-1.5 px-2 text-right border-b border-gray-200 font-semibold text-red-500" x-text="formatNumber(discount)"></td>
+                    </tr>
+                    <tr>
+                        <td class="py-1.5 px-2 text-right font-bold border-b border-gray-200 text-gray-700">หลังหักส่วนลด</td>
+                        <td class="py-1.5 px-2 text-right border-b border-gray-200 font-semibold text-gray-800" x-text="formatNumber(getSubtotal() - discount)"></td>
+                    </tr>
+                    <tr>
+                        <td class="py-1.5 px-2 text-right font-bold border-b border-gray-200 text-gray-700">ภาษีมูลค่าเพิ่ม <span x-text="vatRate"></span>%</td>
+                        <td class="py-1.5 px-2 text-right border-b border-gray-200 font-semibold text-gray-800" x-text="formatNumber(getVatAmount())"></td>
+                    </tr>
+                    <tr class="bg-blue-100/50">
+                        <td class="py-2 px-2 text-right font-bold text-blue-900 border-b-2 border-blue-600">จำนวนเงินทั้งสิ้น</td>
+                        <td class="py-2 px-2 text-right font-bold text-blue-900 border-b-2 border-blue-600 text-[15px]" x-text="formatNumber(getGrandTotal())"></td>
+                    </tr>
+                    <!-- ตัวอักษรจำนวนเงิน -->
+                    <tr>
+                        <td colspan="6" class="py-2 px-3 text-center font-bold bg-blue-600 text-white text-sm">
+                            ( <span x-text="getThaiText(getGrandTotal())"></span> )
+                        </td>
+                    </tr>
+                </tbody>
+            </table>
+
+            <!-- ลายเซ็นต์ -->
+            <div class="signature-section flex justify-between mt-4 px-6 text-sm text-center">
+                <!-- ผู้เสนอราคา / ผู้ออกเอกสาร -->
+                <div class="w-64">
+                    <p class="mb-5 font-bold text-blue-900" x-text="docType.includes('RECEIPT') ? 'ผู้รับเงิน (Authorized Signature)' : 'ผู้เสนอราคา (Authorized Signature)'"></p>
+                    <div class="border-b-2 border-blue-300 w-full mb-1.5"></div>
+                    <p class="mb-1 text-gray-700">( <span x-text="myCompany || '...........................................'"></span> )</p>
+                    <p class="text-xs mt-1 text-gray-500">วันที่: ....... / ....... / .............</p>
+                </div>
+                
+                <!-- ลูกค้า / ผู้อนุมัติ -->
+                <div class="w-64" x-show="!docType.includes('RECEIPT')">
+                    <p class="mb-5 font-bold text-blue-900" x-text="docType.includes('QUOTATION') ? 'ผู้อนุมัติสั่งซื้อ (Authorized Signature)' : 'ผู้รับสินค้า / บริการ (Received By)'"></p>
+                    <div class="border-b-2 border-blue-300 w-full mb-1.5"></div>
+                    <p class="mb-1 text-gray-700">( ..................................................... )</p>
+                    <p class="text-xs mt-1 text-gray-500">วันที่: ....... / ....... / .............</p>
+                </div>
+            </div>
+
+        </div>
+    </div>
+</body>
+</html>
