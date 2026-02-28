@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Document Generator (Fixed Print Margin)</title>
+    <title>Document Generator (Local Storage)</title>
     <!-- ใช้ Tailwind CSS -->
     <script src="https://cdn.tailwindcss.com"></script>
     
@@ -56,9 +56,11 @@
                     this.updateDocNo();
                     
                     // โหลดข้อมูลประวัติจาก Local Storage ทันที
-                    window.listenCloudHistory((docs) => {
-                        this.savedHistory = docs;
-                    });
+                    if(window.listenCloudHistory) {
+                        window.listenCloudHistory((docs) => {
+                            this.savedHistory = docs;
+                        });
+                    }
                     
                     // รอรับแจ้งเตือน
                     window.addEventListener('toast-msg', (e) => {
@@ -173,7 +175,7 @@
                     return emptyCount > 0 ? new Array(emptyCount).fill(0) : [];
                 },
 
-                // --- ฟังก์ชันระบบบันทึกคลาวด์ ---
+                // --- ฟังก์ชันระบบบันทึกคลาวด์ (Local Storage) ---
                 showNotification(msg, type = 'success') {
                     this.toastMessage = msg;
                     this.toastType = type;
@@ -183,7 +185,7 @@
 
                 saveDocument() {
                     this.isSaving = true;
-                    // คัดลอกข้อมูลเพื่อเตรียมบันทึก (ไม่บันทึกรูปภาพเพื่อประหยัดพื้นที่ Cloud)
+                    // คัดลอกข้อมูลเพื่อเตรียมบันทึก (ไม่บันทึกรูปภาพเพื่อประหยัดพื้นที่เบราว์เซอร์)
                     const dataToSave = {
                         docType: this.docType,
                         docNo: this.docNo,
@@ -202,12 +204,16 @@
                         // ไม่บันทึก logoUrl และ productImageUrl
                     };
                     
-                    window.saveToCloud(dataToSave).then((success) => {
+                    if(window.saveToCloud) {
+                        window.saveToCloud(dataToSave).then((success) => {
+                            this.isSaving = false;
+                            if(success) {
+                                this.showNotification('บันทึกเอกสารเรียบร้อยแล้ว');
+                            }
+                        });
+                    } else {
                         this.isSaving = false;
-                        if(success) {
-                            this.showNotification('บันทึกเอกสารเรียบร้อยแล้ว');
-                        }
-                    });
+                    }
                 },
 
                 loadDocument(docData) {
@@ -240,7 +246,7 @@
                 },
 
                 executeDelete() {
-                    if(this.docToDelete) {
+                    if(this.docToDelete && window.deleteFromCloud) {
                         window.deleteFromCloud(this.docToDelete);
                         this.showConfirmModal = false;
                         this.docToDelete = null;
@@ -384,7 +390,7 @@
 <body class="bg-gray-100 h-screen flex overflow-hidden text-sm" x-data="documentApp">
 
     <!-- แถบด้านซ้าย: ตั้งค่า -->
-    <div id="sidebar" class="w-1/3 bg-white h-full border-r overflow-y-auto p-6 shadow-xl z-10">
+    <div id="sidebar" class="w-1/3 bg-white h-full border-r overflow-y-auto p-6 shadow-xl z-10 print-hide">
         <h2 class="text-xl font-bold text-gray-800 mb-6 flex items-center gap-2">
             <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path></svg>
             ตั้งค่าเอกสาร
@@ -410,7 +416,7 @@
             </div>
         </div>
 
-        <hr class="my-6">
+        <hr class="my-6 border-gray-200">
 
         <h3 class="font-bold text-gray-800 mb-3">ข้อมูลผู้ออกเอกสาร</h3>
         
@@ -429,7 +435,7 @@
             <input type="text" x-model="myContact" placeholder="เบอร์โทร / อีเมล" class="w-full border border-gray-300 rounded p-2">
         </div>
 
-        <hr class="my-6">
+        <hr class="my-6 border-gray-200">
 
         <h3 class="font-bold text-gray-800 mb-3">รูปสินค้าหลัก / งานอ้างอิง (แสดงหัวเอกสาร)</h3>
         <div class="mb-6">
@@ -439,7 +445,7 @@
             </div>
         </div>
 
-        <hr class="my-6">
+        <hr class="my-6 border-gray-200">
 
         <h3 class="font-bold text-gray-800 mb-3">ข้อมูลลูกค้า</h3>
         <div class="space-y-3 mb-6">
@@ -448,7 +454,7 @@
             <input type="text" x-model="customerTaxId" placeholder="เลขประจำตัวผู้เสียภาษีลูกค้า (ถ้ามี)" class="w-full border border-gray-300 rounded p-2">
         </div>
 
-        <hr class="my-6">
+        <hr class="my-6 border-gray-200">
 
         <h3 class="font-bold text-gray-800 mb-3 flex justify-between items-center">
             รายการสินค้า/บริการ
@@ -484,7 +490,7 @@
             </div>
         </template>
 
-        <hr class="my-6">
+        <hr class="my-6 border-gray-200">
 
         <div class="grid grid-cols-2 gap-4 mb-6">
             <div>
@@ -510,7 +516,7 @@
     <div id="preview-container" class="w-2/3 h-full overflow-y-auto bg-gray-300 p-8 relative">
         
         <!-- กลุ่มปุ่ม Action (มุมขวาบน) -->
-        <div id="action-buttons" class="fixed top-6 right-6 flex gap-3 z-50">
+        <div id="action-buttons" class="fixed top-6 right-6 flex gap-3 z-50 print-hide">
             <!-- ปุ่มประวัติ -->
             <button @click="showHistoryModal = true" class="bg-indigo-600 text-white px-4 py-2 rounded shadow hover:bg-indigo-700 font-bold flex items-center gap-2 transition">
                 <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
