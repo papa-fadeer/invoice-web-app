@@ -42,8 +42,30 @@
                 
                 notes: '1. กรุณาชำระเงินมัดจำ 50% ก่อนเริ่มดำเนินการ\n2. ชำระเงินส่วนที่เหลือเมื่อส่งมอบงาน\n3. โอนเงินเข้าบัญชี: ธ.กสิกรไทย 177-1-80680-1 ชื่อบัญชี นายวรรณรัตน์ สายทอง',
 
+                // --- ตัวแปรสำหรับระบบคลาวด์ ---
+                savedHistory: [],
+                showHistoryModal: false,
+                isSaving: false,
+                showToast: false,
+                toastMessage: '',
+                toastType: 'success',
+                showConfirmModal: false,
+                docToDelete: null,
+
                 init() {
                     this.updateDocNo();
+                    
+                    // รอรับ Event เมื่อ Firebase พร้อมใช้งาน
+                    window.addEventListener('firebase-ready', () => {
+                        window.listenCloudHistory((docs) => {
+                            this.savedHistory = docs;
+                        });
+                    });
+                    
+                    // รอรับแจ้งเตือนจากระบบคลาวด์
+                    window.addEventListener('toast-msg', (e) => {
+                        this.showNotification(e.detail.msg, e.detail.type);
+                    });
                 },
 
                 updateDocNo() {
@@ -151,12 +173,174 @@
                     const currentRows = this.items.length;
                     const emptyCount = minRows - currentRows;
                     return emptyCount > 0 ? new Array(emptyCount).fill(0) : [];
+                },
+
+                // --- ฟังก์ชันระบบบันทึกคลาวด์ ---
+                showNotification(msg, type = 'success') {
+                    this.toastMessage = msg;
+                    this.toastType = type;
+                    this.showToast = true;
+                    setTimeout(() => this.showToast = false, 3000);
+                },
+
+                saveDocument() {
+                    this.isSaving = true;
+                    // คัดลอกข้อมูลเพื่อเตรียมบันทึก (ไม่บันทึกรูปภาพเพื่อประหยัดพื้นที่ Cloud)
+                    const dataToSave = {
+                        docType: this.docType,
+                        docNo: this.docNo,
+                        docDate: this.docDate,
+                        myCompany: this.myCompany,
+                        myAddress: this.myAddress,
+                        myTaxId: this.myTaxId,
+                        myContact: this.myContact,
+                        customerName: this.customerName,
+                        customerAddress: this.customerAddress,
+                        customerTaxId: this.customerTaxId,
+                        items: JSON.parse(JSON.stringify(this.items)).map(item => ({...item, imgUrl: ''})), // ลบรูปภาพย่อย
+                        discount: this.discount,
+                        vatRate: this.vatRate,
+                        notes: this.notes
+                        // ไม่บันทึก logoUrl และ productImageUrl
+                    };
+                    
+                    window.saveToCloud(dataToSave).then((success) => {
+                        this.isSaving = false;
+                        if(success) {
+                            this.showNotification('บันทึกเอกสารเรียบร้อยแล้ว');
+                        }
+                    });
+                },
+
+                loadDocument(docData) {
+                    this.docType = docData.docType || 'ใบเสนอราคา (QUOTATION)';
+                    this.docNo = docData.docNo || '';
+                    this.docDate = docData.docDate || new Date().toISOString().split('T')[0];
+                    this.customerName = docData.customerName || '';
+                    this.customerAddress = docData.customerAddress || '';
+                    this.customerTaxId = docData.customerTaxId || '';
+                    this.myCompany = docData.myCompany || '';
+                    this.myAddress = docData.myAddress || '';
+                    this.myTaxId = docData.myTaxId || '';
+                    this.myContact = docData.myContact || '';
+                    this.items = docData.items ? JSON.parse(JSON.stringify(docData.items)) : [];
+                    this.discount = docData.discount || 0;
+                    this.vatRate = docData.vatRate || 0;
+                    this.notes = docData.notes || '';
+                    
+                    // ปล่อยรูปภาพไว้เป็นค่าว่าง เนื่องจากไม่ได้บันทึกไว้
+                    this.logoUrl = '';
+                    this.productImageUrl = '';
+                    
+                    this.showHistoryModal = false;
+                    this.showNotification('โหลดเอกสารเรียบร้อย');
+                },
+
+                confirmDelete(id) {
+                    this.docToDelete = id;
+                    this.showConfirmModal = true;
+                },
+
+                executeDelete() {
+                    if(this.docToDelete) {
+                        window.deleteFromCloud(this.docToDelete);
+                        this.showConfirmModal = false;
+                        this.docToDelete = null;
+                        this.showNotification('ลบประวัติเอกสารแล้ว');
+                    }
                 }
             }));
         });
     </script>
     
     <script src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
+
+    <!-- Script สำหรับเชื่อมต่อ Firebase Firestore -->
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+        import { getAuth, signInWithCustomToken, signInAnonymously, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        import { getFirestore, collection, addDoc, onSnapshot, doc, deleteDoc } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+
+        let db, auth, currentUserId = null;
+        const appId = typeof __app_id !== 'undefined' ? __app_id : 'invoice-app';
+        window.firebaseReady = false;
+
+        if (typeof __firebase_config !== 'undefined') {
+            try {
+                const firebaseConfig = JSON.parse(__firebase_config);
+                const app = initializeApp(firebaseConfig);
+                auth = getAuth(app);
+                db = getFirestore(app);
+
+                const initAuth = async () => {
+                    try {
+                        if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
+                            await signInWithCustomToken(auth, __initial_auth_token);
+                        } else {
+                            await signInAnonymously(auth);
+                        }
+                    } catch (err) {
+                        console.error("Auth error", err);
+                    }
+                };
+                
+                initAuth().then(() => {
+                    onAuthStateChanged(auth, (user) => {
+                        if (user) {
+                            currentUserId = user.uid;
+                            window.firebaseReady = true;
+                            window.dispatchEvent(new CustomEvent('firebase-ready'));
+                        } else {
+                            currentUserId = null;
+                            window.firebaseReady = false;
+                        }
+                    });
+                });
+            } catch (e) {
+                console.error("Firebase init error", e);
+            }
+        }
+
+        // Expose ฟังก์ชันให้ Alpine ใช้งาน
+        window.saveToCloud = async (data) => {
+            if (!window.firebaseReady) {
+                window.dispatchEvent(new CustomEvent('toast-msg', { detail: { msg: "การบันทึกคลาวด์รองรับเฉพาะบนระบบหน้าต่างพรีวิวนี้เท่านั้น", type: "error" } }));
+                return false;
+            }
+            try {
+                const colRef = collection(db, 'artifacts', appId, 'users', currentUserId, 'documents');
+                await addDoc(colRef, { ...data, savedAt: new Date().toISOString() });
+                return true;
+            } catch (e) {
+                console.error(e);
+                return false;
+            }
+        };
+
+        window.listenCloudHistory = (callback) => {
+            if (!window.firebaseReady) return;
+            const colRef = collection(db, 'artifacts', appId, 'users', currentUserId, 'documents');
+            onSnapshot(colRef, (snapshot) => {
+                const docs = [];
+                snapshot.forEach(d => docs.push({ id: d.id, ...d.data() }));
+                // เรียงข้อมูลจากใหม่ไปเก่า (ทำใน memory ตามกฎ No Complex Queries)
+                docs.sort((a, b) => new Date(b.savedAt) - new Date(a.savedAt));
+                callback(docs);
+            }, (err) => {
+                console.error("Snapshot error:", err);
+            });
+        };
+
+        window.deleteFromCloud = async (id) => {
+            if (!window.firebaseReady) return;
+            try {
+                await deleteDoc(doc(db, 'artifacts', appId, 'users', currentUserId, 'documents', id));
+            } catch (e) {
+                console.error("Delete error", e);
+            }
+        };
+    </script>
+
     <link href="https://fonts.googleapis.com/css2?family=Sarabun:wght@300;400;500;600;700&display=swap" rel="stylesheet">
     
     <style>
@@ -183,7 +367,7 @@
                 margin: 0;
                 padding: 0;
             }
-            #sidebar, #print-btn { display: none !important; }
+            #sidebar, #action-buttons, .print-hide { display: none !important; }
             #preview-container { 
                 width: 100%; 
                 margin: 0; 
@@ -355,10 +539,26 @@
     <!-- แถบด้านขวา: Live Preview -->
     <div id="preview-container" class="w-2/3 h-full overflow-y-auto bg-gray-300 p-8 relative">
         
-        <button id="print-btn" onclick="window.print()" class="fixed top-6 right-6 bg-gray-800 text-white px-6 py-3 rounded shadow-lg hover:bg-black font-bold flex items-center gap-2 z-50">
-            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 17h2a2 2 0 002-2v-4a2 2 0 00-2-2H5a2 2 0 00-2 2v4a2 2 0 002 2h2m2 4h6a2 2 0 002-2v-4a2 2 0 00-2-2H9a2 2 0 00-2 2v4a2 2 0 002 2zm8-12V5a2 2 0 00-2-2H9a2 2 0 00-2 2v4h10z"></path></svg>
-            พิมพ์เอกสาร / PDF
-        </button>
+        <!-- กลุ่มปุ่ม Action (มุมขวาบน) -->
+        <div id="action-buttons" class="fixed top-6 right-6 flex gap-3 z-50">
+            <!-- ปุ่มประวัติ -->
+            <button @click="showHistoryModal = true" class="bg-indigo-600 text-white px-4 py-2 rounded shadow hover:bg-indigo-700 font-bold flex items-center gap-2 transition">
+                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
+                ประวัติ (<span x-text="savedHistory.length"></span>)
+            </button>
+            
+            <!-- ปุ่มบันทึก -->
+            <button @click="saveDocument()" class="bg-emerald-600 text-white px-4 py-2 rounded shadow hover:bg-emerald-700 font-bold flex items-center gap-2 transition" :disabled="isSaving" :class="isSaving ? 'opacity-50 cursor-not-allowed' : ''">
+                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7H5a2 2 0 00-2 2v9a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-3m-1 4l-3 3m0 0l-3-3m3 3V4"></path></svg>
+                <span x-text="isSaving ? 'กำลังบันทึก...' : 'บันทึกเอกสาร'"></span>
+            </button>
+
+            <!-- ปุ่มพิมพ์ -->
+            <button onclick="window.print()" class="bg-gray-800 text-white px-4 py-2 rounded shadow hover:bg-black font-bold flex items-center gap-2 transition">
+                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 17h2a2 2 0 002-2v-4a2 2 0 00-2-2H5a2 2 0 00-2 2v4a2 2 0 002 2h2m2 4h6a2 2 0 002-2v-4a2 2 0 00-2-2H9a2 2 0 00-2 2v4a2 2 0 002 2zm8-12V5a2 2 0 00-2-2H9a2 2 0 00-2 2v4h10z"></path></svg>
+                พิมพ์ / PDF
+            </button>
+        </div>
 
         <div id="document-page">
             
@@ -532,5 +732,83 @@
 
         </div>
     </div>
+
+    <!-- UI: แจ้งเตือน (Toast) -->
+    <div x-show="showToast" x-transition.opacity.duration.300ms
+         class="fixed bottom-8 left-1/2 -translate-x-1/2 px-6 py-3 rounded-full shadow-2xl text-white font-bold z-[100] flex items-center gap-2 print-hide"
+         :class="toastType === 'success' ? 'bg-emerald-600' : 'bg-red-600'"
+         style="display: none;">
+         <svg x-show="toastType === 'success'" class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path></svg>
+         <svg x-show="toastType === 'error'" class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
+         <span x-text="toastMessage"></span>
+    </div>
+
+    <!-- UI: Modal ประวัติเอกสาร -->
+    <div x-show="showHistoryModal" class="fixed inset-0 bg-black/60 z-[110] flex items-center justify-center print-hide backdrop-blur-sm" x-transition.opacity style="display: none;">
+        <div class="bg-gray-100 rounded-xl shadow-2xl w-full max-w-3xl max-h-[85vh] flex flex-col overflow-hidden m-4" @click.away="showHistoryModal = false">
+            <div class="p-4 bg-indigo-600 text-white flex justify-between items-center shadow-md z-10">
+                <h2 class="text-xl font-bold flex items-center gap-2">
+                    <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
+                    ประวัติเอกสารที่บันทึกไว้
+                </h2>
+                <button @click="showHistoryModal = false" class="text-white hover:bg-indigo-700 p-1 rounded transition">
+                    <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg>
+                </button>
+            </div>
+            
+            <div class="p-5 overflow-y-auto flex-1">
+                <template x-if="savedHistory.length === 0">
+                    <div class="text-center py-16 bg-white rounded-lg border border-dashed border-gray-300">
+                        <svg class="w-16 h-16 mx-auto mb-4 text-gray-300" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 13h6m-3-3v6m5 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path></svg>
+                        <p class="text-lg font-semibold text-gray-500">ยังไม่มีประวัติการบันทึกเอกสาร</p>
+                        <p class="text-sm text-gray-400 mt-1">กดปุ่ม "บันทึกเอกสาร" ด้านบนเพื่อเก็บข้อมูลไว้ดูย้อนหลัง</p>
+                    </div>
+                </template>
+
+                <div class="grid gap-3">
+                    <template x-for="docItem in savedHistory" :key="docItem.id">
+                        <div class="bg-white p-4 rounded-lg border border-gray-200 shadow-sm flex items-center justify-between hover:border-indigo-400 hover:shadow-md transition">
+                            <div>
+                                <div class="flex items-center gap-2 mb-1">
+                                    <span class="px-2 py-0.5 text-[11px] font-bold rounded" 
+                                          :class="docItem.docType.includes('INVOICE') ? 'bg-orange-100 text-orange-700' : (docItem.docType.includes('RECEIPT') ? 'bg-green-100 text-green-700' : 'bg-blue-100 text-blue-700')"
+                                          x-text="docItem.docType.split(' ')[0]"></span>
+                                    <span class="font-bold text-gray-900 text-lg" x-text="docItem.docNo"></span>
+                                </div>
+                                <div class="text-sm text-gray-700 font-medium mt-1" x-text="'ลูกค้า: ' + (docItem.customerName || 'ไม่ระบุ')"></div>
+                                <div class="text-xs text-gray-400 mt-1" x-text="'บันทึกเมื่อ: ' + new Date(docItem.savedAt).toLocaleString('th-TH')"></div>
+                            </div>
+                            <div class="flex gap-2">
+                                <button @click="loadDocument(docItem)" class="px-4 py-2 bg-indigo-50 text-indigo-700 hover:bg-indigo-600 hover:text-white rounded border border-indigo-100 text-sm font-bold transition shadow-sm">
+                                    เปิดเอกสาร
+                                </button>
+                                <button @click="confirmDelete(docItem.id)" class="px-2 py-2 text-red-400 hover:bg-red-50 hover:text-red-600 rounded transition" title="ลบประวัติ">
+                                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path></svg>
+                                </button>
+                            </div>
+                        </div>
+                    </template>
+                </div>
+            </div>
+            <!-- Note -->
+            <div class="bg-gray-200 p-3 text-center text-xs text-gray-500">
+                * หมายเหตุ: ระบบจะไม่บันทึกรูปภาพ (โลโก้/สินค้า) ลงในคลาวด์เพื่อประหยัดพื้นที่ใช้งานและป้องกันข้อมูลเต็ม
+            </div>
+        </div>
+    </div>
+
+    <!-- UI: Modal ยืนยันการลบ -->
+    <div x-show="showConfirmModal" class="fixed inset-0 bg-black/50 z-[120] flex items-center justify-center print-hide" x-transition.opacity style="display: none;">
+        <div class="bg-white p-6 rounded-xl shadow-2xl max-w-sm w-full text-center m-4">
+            <svg class="w-16 h-16 text-red-500 mx-auto mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"></path></svg>
+            <h3 class="text-xl font-bold mb-2 text-gray-900">ยืนยันการลบ?</h3>
+            <p class="text-gray-600 mb-6 text-sm">คุณต้องการลบประวัติเอกสารนี้ใช่หรือไม่<br>ข้อมูลที่ลบจะไม่สามารถกู้คืนได้</p>
+            <div class="flex gap-3 justify-center">
+                <button @click="showConfirmModal = false" class="px-5 py-2 bg-gray-200 text-gray-800 rounded font-bold hover:bg-gray-300 transition">ยกเลิก</button>
+                <button @click="executeDelete()" class="px-5 py-2 bg-red-600 text-white rounded font-bold hover:bg-red-700 shadow-md transition">ยืนยันลบ</button>
+            </div>
+        </div>
+    </div>
+
 </body>
 </html>
